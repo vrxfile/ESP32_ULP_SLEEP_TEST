@@ -5,6 +5,8 @@
 #include "esp32/ulp.h"
 #include "esp_deep_sleep.h"
 #include "driver/rtc_io.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <BlynkSimpleEsp32.h>
@@ -12,8 +14,8 @@
 static RTC_DATA_ATTR struct timeval sleep_enter_time;
 
 // Wi-Fi point
-char ssid[] = "MGBot";
-char pass[] = "Terminator812";
+char ssid[] = "R-WiFi";
+char pass[] = "vrx_robot_2801198";
 IPAddress blynk_ip(139, 59, 206, 133);
 WiFiClient client;
 
@@ -23,9 +25,8 @@ char auth[] = "ab6ca5b76e9c470396f750999f3d3ddc";
 #define WAKE_UP_TIME 30   // Wake up time (s)
 #define WORKING_TIME 10   // Working time (s)
 
-long waterCount = 0;     // Суммарные данные со счетчика воды
-long esp_water = 0;      // Данные, посчитанные основным процессором
-long ulp_water = 0;      // Данные, посчитанные ULP сопроцессором
+int32_t waterCount = 0;     // Суммарные данные со счетчика воды
+int32_t ulp_water = 0;      // Данные, посчитанные ULP сопроцессором
 
 // Код для ULP процессора
 const ulp_insn_t program[] = {
@@ -83,12 +84,14 @@ void setup() {
   }
 
   // Подключение к Wi-Fi и серверу Blynk
-  /*    WiFi.begin(ssid, password);
+  /*
+    WiFi.begin(ssid, password);
     while (WiFi.status() != WL_CONNECTED)
     {
     delay(500);
     Serial.print(".");
-    }  */
+    }
+  */
   Blynk.begin(auth, ssid, pass, blynk_ip, 8442);
   Serial.println();
   Serial.println("WiFi connected");
@@ -101,25 +104,86 @@ void setup() {
   Serial.print("Number of pulses from last sleep: ");
   Serial.println(ulp_water);
 
-  // Отправка данных на сервер Blynk
-  waterCount = waterCount + ulp_water;
-  Serial.print("Water counter: ");
-  Serial.println(waterCount);
-  Blynk.virtualWrite(V0, waterCount);
-  Blynk.run();
-  Blynk.run();
-  Blynk.run();
-  Serial.println("Data has been sent");
-  Serial.println();
-
   // Очистка памяти RTC для ULP сопроцессора
   memset(RTC_SLOW_MEM, 0, CONFIG_ULP_COPROC_RESERVE_MEM);
 
-  // Запуск выполнения программы в ULP сопроцессоре
+  // Новый запуск выполнения программы в ULP сопроцессоре
   size_t load_addr = 0;
   size_t size = sizeof(program) / sizeof(ulp_insn_t);
   ulp_process_macros_and_load(load_addr, program, &size);
   ulp_run(load_addr);
+
+  // Инициализация NVS памяти
+  esp_err_t err = nvs_flash_init();
+  if (err == ESP_ERR_NVS_NO_FREE_PAGES) {
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    err = nvs_flash_init();
+  }
+  ESP_ERROR_CHECK(err);
+
+  // Считывание последних данных их NVS памяти, сложение с новыми данными и запись в NVS
+  waterCount = 0;
+  nvs_handle my_nvs_handle;
+  Serial.print("Opening Non-Volatile Storage (NVS) handle... ");
+
+  // "Открытие" NVS памяти для чтения/записи
+  err = nvs_open("storage", NVS_READWRITE, &my_nvs_handle);
+  if (err != ESP_OK) {
+    Serial.print("Error opening NVS handle: ");
+    Serial.println(err);
+  } else {
+    Serial.println("Done");
+    Serial.print("Reading water counter from NVS ... ");
+
+    // Считывание поля из NVS памяти
+    err = nvs_get_i32(my_nvs_handle, "waterCount", &waterCount);
+    switch (err) {
+      case ESP_OK:
+        Serial.println("Done");
+        Serial.print("Water counter = ");
+        Serial.println(waterCount);
+        break;
+      case ESP_ERR_NVS_NOT_FOUND:
+        Serial.println("The value is not initialized yet!");
+        break;
+      default :
+        Serial.print("Error reading: ");
+        Serial.println(err);
+    }
+
+    // Сложение данных из памяти и из ULP
+    waterCount = waterCount + ulp_water;
+
+    // Запись поля данных в NVS память
+    Serial.print("Updating restart counter in NVS ... ");
+    err = nvs_set_i32(my_nvs_handle, "waterCount", waterCount);
+    if (err != ESP_OK) {
+      Serial.print("Error: ");
+      Serial.println(err);
+    } else {
+      Serial.println("Done");
+    }
+    err = nvs_commit(my_nvs_handle);
+    if (err != ESP_OK) {
+      Serial.print("Error: ");
+      Serial.println(err);
+    } else {
+      Serial.println("Done");
+    }
+
+    // Закрытие дескриптора NVS памяти
+    nvs_close(my_nvs_handle);
+  }
+
+  // Отправка данных на сервер Blynk
+  Serial.print("Water counter: ");
+  Serial.println(waterCount);
+  // Индикатор в мобильном приложение настроен на виртуальный порт V0
+  Blynk.virtualWrite(V0, waterCount);
+  // Запуск выполнения все операций в Blynk
+  Blynk.run();  Blynk.run();  Blynk.run();
+  Serial.println("Data has been sent");
+  Serial.println();
 
   // Задержка перед уходом в спящий режим (только для тестов)
   delay(WORKING_TIME * 1000);
