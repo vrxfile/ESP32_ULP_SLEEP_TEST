@@ -14,8 +14,8 @@
 static RTC_DATA_ATTR struct timeval sleep_enter_time;
 
 // Wi-Fi point
-char ssid[] = "R-WiFi";
-char pass[] = "vrx_robot_2801198";
+char ssid[] = "MGBot";
+char pass[] = "Terminator812";
 IPAddress blynk_ip(139, 59, 206, 133);
 WiFiClient client;
 
