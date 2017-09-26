@@ -22,13 +22,14 @@ WiFiClient client;
 // Blynk
 char auth[] = "ab6ca5b76e9c470396f750999f3d3ddc";
 
-#define WAKE_UP_TIME 30   // Wake up time (s)
-#define WORKING_TIME 10   // Working time (s)
+#define WAKE_UP_TIME 30   // Wake up time for main cpu (s)
+#define WORKING_TIME 10   // Working time for main cpu (s)
+#define ULP_UP_TIME  10   // Wake up time for ULP (ms)
 
 int32_t waterCount = 0;     // Суммарные данные со счетчика воды
 int32_t ulp_water = 0;      // Данные, посчитанные ULP сопроцессором
 
-// Код для ULP процессора
+// Код для ULP процессора (бесконечный цикл)
 const ulp_insn_t program[] = {
   I_MOVI(R0, 0),      // Сброс значения регистра R0
   I_MOVI(R1, 0),      // Сброс значения регистра R1
@@ -41,7 +42,7 @@ const ulp_insn_t program[] = {
   M_LABEL(2),         // Метка №2
   I_MOVR(R1, R0),     // Сохраняем значение состояния ножки
   I_MOVI(R2, 16),     // Устанавливаем адрес памяти, куда будем выводить значение счетчика
-  I_ST(R3, R2, 0),    // Вывводим в память RTC значения счетчика
+  I_ST(R3, R2, 0),    // Выводим в память RTC значения счетчика
   M_BX(1),            // Возвращаемся в начало цикла программы
   I_HALT()
 };
@@ -84,14 +85,6 @@ void setup() {
   }
 
   // Подключение к Wi-Fi и серверу Blynk
-  /*
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED)
-    {
-    delay(500);
-    Serial.print(".");
-    }
-  */
   Blynk.begin(auth, ssid, pass, blynk_ip, 8442);
   Serial.println();
   Serial.println("WiFi connected");
